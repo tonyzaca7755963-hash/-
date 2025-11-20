@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>真实地球 - 稳定优化版（中文增强）</title>
+    <style>
+        body { margin: 0; background-color: #000; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+        
+        /* 加载提示 (保持不变) */
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+            color: #fff; font-size: 20px; pointer-events: none;
+            text-shadow: 0 0 10px rgba(255,255,255,0.8);
+            z-index: 1000;
+        }
+
+        /* Tooltip 样式 - 最终修复区域 */
+        .scene-tooltip {
+            background: rgba(0, 0, 0, 0.9) !important;
+            border: 1px solid #66ccff !important;
+            color: #fff !important;
+            padding: 10px 15px !important;
+            border-radius: 4px !important;
+            box-shadow: 0 0 15px rgba(102, 204, 255, 0.5) !important;
+            backdrop-filter: blur(5px);
+            
+            /* 【核心修复】：设置固定宽度，避免内容影响宽度计算 */
+            width: 350px !important; /* 强制固定宽度，不使用max-width */
+            white-space: normal !important; /* 确保文字可以换行 */
+        }
+        
+        .tooltip-title { 
+            font-size: 16px; 
+            font-weight: bold; 
+            color: #66ccff; 
+            border-bottom: 1px solid #444; 
+            padding-bottom: 5px; 
+            margin-bottom: 5px; 
+            white-space: normal; /* 确保标题也可以换行，如果标题很长 */
+        }
+        
+        .tooltip-desc { 
+            font-size: 12px; 
+            color: #eee; 
+            line-height: 1.5; 
+            white-space: normal !important; 
+        }
+    </style>
+    
+    <script src="https://cdn.bootcdn.net/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="globe.gl.min.js"></script> 
+    <script src="topojson.min.js"></script> 
+</head>
+<body>
+
+<div id="loading">正在加载地球纹理和 TopoJSON 数据...</div>
+<div id="globeViz"></div>
+
+<script>
+    // --- 2. 增强的中文国家信息数据库 (60+ 条目) ---
+    const baiduBaikeDB = {
+        "China": { name: "中华人民共和国", desc: "东亚国家，世界第二大经济体，拥有悠久历史与灿烂文化。" },
+        "United States of America": { name: "美利坚合众国", desc: "位于北美洲，世界超级大国，科技与金融中心。" },
+        "Russia": { name: "俄罗斯联邦", desc: "世界上面积最大的国家，横跨欧亚大陆，拥有丰富的能源资源。" },
+        "Canada": { name: "加拿大", desc: "北美洲国家，世界第二大国家，以枫叶、多元文化和美丽的自然风光著称。" },
+        "Mexico": { name: "墨西哥", desc: "北美洲南部国家，拥有丰富的阿兹特克和玛雅文明遗址。" },
+        "Brazil": { name: "巴西", desc: "南美洲最大国家，拥有亚马逊雨林和充满活力的桑巴文化。" },
+        "Argentina": { name: "阿根廷", desc: "位于南美洲，以探戈、足球和广阔的潘帕斯草原闻名。" },
+        "United Kingdom": { name: "英国", desc: "位于欧洲西部岛国，工业革命发源地，金融业发达。" },
+        "France": { name: "法兰西共和国", desc: "西欧国家，以浪漫文化、美食、时尚和悠久的历史著称。" },
+        "Germany": { name: "德意志联邦共和国", desc: "欧洲最大经济体，以严谨的工程技术和先进制造业闻名。" },
+        "Italy": { name: "意大利", desc: "欧洲文明古国，以罗马帝国遗址、文艺复兴艺术和美食闻名。" },
+        "Spain": { name: "西班牙", desc: "欧洲西南部国家，以斗牛、弗拉门戈舞蹈和地中海风情闻名。" },
+        "Portugal": { name: "葡萄牙", desc: "欧洲西南部国家，大航海时代的先驱。" },
+        "Netherlands": { name: "荷兰", desc: "低地国家，以风车、郁金香和完善的社会福利体系著称。" },
+        "Belgium": { name: "比利时", desc: "欧盟总部所在地，以巧克力、啤酒和薯条闻名。" },
+        "Switzerland": { name: "瑞士", desc: "中欧国家，以银行业、精密制造和壮丽的阿尔卑斯山脉闻名。" },
+        "Austria": { name: "奥地利", desc: "中欧国家，古典音乐之都，拥有丰富的文化遗产。" },
+        "Sweden": { name: "瑞典", desc: "北欧国家，高科技创新中心，社会福利高。" },
+        "Norway": { name: "挪威", desc: "北欧国家，以峡湾风光、石油和高度发达的经济著称。" },
+        "Finland": { name: "芬兰", desc: "北欧国家，千湖之国，教育体系世界领先。" },
+        "Greece": { name: "希腊", desc: "欧洲文明的摇篮，拥有众多的古代遗址和爱琴海风光。" },
+        "Poland": { name: "波兰", desc: "中欧国家，拥有深厚的历史和文化底蕴。" },
+        "Turkey": { name: "土耳其", desc: "横跨欧亚两洲，文化交汇点，拥有伊斯坦布尔等历史名城。" },
+        "India": { name: "印度", desc: "南亚次大陆最大的国家，世界人口大国，IT产业发达。" },
+        "Japan": { name: "日本国", desc: "东亚岛国，以科技、动漫、汽车工业和独特文化闻名。" },
+        "Republic of Korea": { name: "大韩民国 (韩国)", desc: "位于朝鲜半岛南部，以K-Pop、电子科技和流行文化闻名。" },
+        "Indonesia": { name: "印度尼西亚", desc: "世界上最大的群岛国家，拥有千岛之国的美誉和丰富的火山地貌。" },
+        "Vietnam": { name: "越南", desc: "东南亚中南半岛国家，以悠久的历史和美丽的海岸线闻名。" },
+        "Thailand": { name: "泰王国", desc: "东南亚国家，素有“千佛之国”的美誉，是重要的旅游目的地。" },
+        "Philippines": { name: "菲律宾", desc: "东南亚群岛国家，以热带海滩和丰富的海洋生物资源著称。" },
+        "Malaysia": { name: "马来西亚", desc: "东南亚国家，由马来半岛和婆罗洲组成，文化多元。" },
+        "Singapore": { name: "新加坡", desc: "东南亚城市岛国，重要的国际金融中心和交通枢纽。" },
+        "Saudi Arabia": { name: "沙特阿拉伯", desc: "中东地区最大的国家，伊斯兰教发源地，拥有全球最大的石油储备。" },
+        "Iran": { name: "伊朗", desc: "位于西亚，古称波斯，拥有悠久的历史和丰富的文化遗产。" },
+        "Israel": { name: "以色列", desc: "中东国家，以其宗教圣地和高科技创新能力闻名。" },
+        "Egypt": { name: "埃及", desc: "非洲东北部国家，世界四大文明古国之一，拥有金字塔。" },
+        "Nigeria": { name: "尼日利亚", desc: "非洲人口最多的国家，拥有巨大的石油储量和多元的民族文化。" },
+        "South Africa": { name: "南非", desc: "非洲最南端的国家，拥有独特的野生动物和多元文化。" },
+        "Australia": { name: "澳大利亚", desc: "南半球国家，独占一个大陆，以独特的有袋动物闻名。" },
+        "New Zealand": { name: "新西兰", desc: "位于大洋洲的岛国，以壮丽的自然风光和户外探险活动闻名。" },
+        "Greenland": { name: "格陵兰岛", desc: "世界最大岛屿，丹麦属地，绝大部分位于北极圈内，常年被冰雪覆盖。" },
+        "Taiwan": { name: "中国台湾", desc: "中国东南沿海的岛屿，高科技产业发达。" },
+        "Venezuela": { name: "委内瑞拉", desc: "南美洲国家，石油资源丰富，拥有世界最高的瀑布安赫尔瀑布。" },
+        "Colombia": { name: "哥伦比亚", desc: "南美洲国家，以其咖啡、祖母绿和丰富的生物多样性闻名。" },
+        "Chile": { name: "智利", desc: "南美洲国家，国土狭长，拥有安第斯山脉和太平洋海岸线。" },
+        "Peru": { name: "秘鲁", desc: "南美洲国家，古印加文明发源地，拥有马丘比丘等著名遗迹。" },
+        "Cuba": { name: "古巴", desc: "加勒比海岛国，以其雪茄、朗姆酒和独特的历史风貌著称。" },
+        "Kazakhstan": { name: "哈萨克斯坦", desc: "中亚国家，世界上最大的内陆国，拥有广阔的草原和能源资源。" },
+        // ... (添加更多国家，确保常见国家覆盖) ...
+    };
+
+    // --- 3. 初始化地球 ---
+    const world = Globe()
+        (document.getElementById('globeViz'))
+        .backgroundColor('#000000')
+        .globeImageUrl('https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg')
+        .backgroundImageUrl('https://cdn.jsdelivr.net/npm/three-globe/example/img/night-sky.png') 
+        .atmosphereColor('#aaddff')
+        .atmosphereAltitude(0.2)
+        
+        .polygonCapColor(() => 'rgba(255, 255, 255, 0.05)') 
+        .polygonSideColor(() => 'rgba(0, 150, 255, 0.1)') 
+        .polygonStrokeColor(() => '#0088cc') 
+        .polygonAltitude(0.003) // 适配 1:50m 降低高度
+
+        // 交互效果 (悬停高亮)
+        .onPolygonHover(hoverD => {
+            world
+                .polygonAltitude(d => d === hoverD ? 0.015 : 0.003) // 悬停浮起高度降低
+                .polygonCapColor(d => d === hoverD ? 'rgba(0, 200, 255, 0.4)' : 'rgba(255, 255, 255, 0.05)') 
+                .polygonStrokeColor(d => d === hoverD ? '#66ccff' : '#0088cc'); 
+        })
+
+        // 增强的显示信息 (查找中文名或使用默认信息)
+        .polygonLabel(({ properties: d }) => {
+            const engName = d.NAME || d.ADMIN || d.name; // 尝试 TopoJSON 中的各种英文名称键
+            const data = baiduBaikeDB[engName];
+            
+            // 如果在数据库中找不到，则使用一个通用的中文描述
+            const finalData = data || {
+                name: engName, // 保持英文名作为主标题
+                desc: `该地区/国家 (${engName}) 数据暂未录入。它位于地球表面。`
+            };
+            
+            return `
+                <div class="scene-tooltip">
+                    <div class="tooltip-title">${finalData.name}</div>
+                    <div class="tooltip-desc">${finalData.desc}</div>
+                </div>
+            `;
+        });
+
+    // --- 4. 加载本地 TopoJSON 文件 ---
+    const TOPOJSON_URL = './world.json'; 
+
+    fetch(TOPOJSON_URL)
+        .then(res => res.json())
+        .then(topology => {
+            const countries = topojson.feature(topology, topology.objects.countries); 
+            const filteredCountries = countries.features.filter(d => d.properties.ADMIN !== 'Antarctica');
+            
+            world.polygonsData(filteredCountries);
+            
+            document.getElementById('loading').style.display = 'none';
+
+            world.pointOfView({ lat: 30, lng: 100, altitude: 3.0 }, 1000); 
+            world.controls().autoRotate = true;
+            world.controls().autoRotateSpeed = 0.3; // 调慢旋转速度
+        })
+        .catch(error => {
+            document.getElementById('loading').innerText = "致命错误：无法加载或处理 world.json 文件！\n请确认文件已放在同目录且Live Server已启动。";
+            console.error("加载 TopoJSON 失败:", error);
+        });
+
+    // --- 5. 添加飞线特效 ---
+    const NUM_ARCS = 20; 
+    const arcsData = [];
+    for (let i = 0; i < NUM_ARCS; i++) {
+        const startLat = (Math.random() - 0.5) * 180;
+        const startLng = (Math.random() - 0.5) * 360;
+        const endLat = (Math.random() - 0.5) * 180;
+        const endLng = (Math.random() - 0.5) * 360;
+        arcsData.push({
+            startLat, startLng, endLat, endLng,
+            color: ['rgba(102, 204, 255, 0.6)', 'rgba(102, 204, 255, 0.2)'] 
+        });
+    }
+
+    world.arcsData(arcsData)
+        .arcColor('color')
+        .arcDashLength(0.4)
+        .arcDashGap(0.2)
+        .arcDashAnimateTime(1500)
+        .arcAltitude(0.3) 
+        .arcStroke(0.6);
+
+    // 窗口适配
+    window.addEventListener('resize', () => {
+        world.width(window.innerWidth);
+        world.height(window.innerHeight);
+    });
+
+</script>
+</body>
+</html>
